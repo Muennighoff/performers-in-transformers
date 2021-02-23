@@ -61,6 +61,7 @@ from ....modeling_tf_utils import (
 from ....utils import logging
 from .configuration_bert_performer import BertPerformerConfig
 from ..modeling_tf_performer_attention import TFPerformerAttention
+from ..tf_fast_attention import Attention
 
 
 
@@ -309,7 +310,11 @@ class TFBertAttention(tf.keras.layers.Layer):
     def __init__(self, config: BertPerformerConfig, **kwargs):
         super().__init__(**kwargs)
 
-        self.self_attention = TFPerformerAttention(config.performer_attention_config, linear_layer_names=('query', 'key', 'value'), name="self")
+        #self.self_attention = TFPerformerAttention(config.performer_attention_config, linear_layer_names=('query', 'key', 'value'), name="self")
+
+        self.self_attention = Attention(config.hidden_size, config.num_attention_heads, config.attention_dropout, name="self")
+
+
         self.dense_output = TFBertSelfOutput(config, name="output")
 
     def prune_heads(self, heads):
@@ -326,10 +331,7 @@ class TFBertAttention(tf.keras.layers.Layer):
         self_outputs = self.self_attention(
             input_tensor,
             input_tensor,
-            input_tensor,
-            attention_mask,
-            head_mask,
-            output_attentions,
+            None,
             training=training,
         )
         attention_output = self.dense_output(

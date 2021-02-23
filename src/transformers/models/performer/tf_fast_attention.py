@@ -486,5 +486,5 @@ class Attention(tf.keras.layers.Layer):
     attention_output = favor_attention(query, key, value,
                                        self.kernel_transformation, self.causal,
                                        projection_matrix)
-    attention_output = self.output_dense_layer(attention_output)
+    #attention_output = self.output_dense_layer(attention_output)
     return attention_output
