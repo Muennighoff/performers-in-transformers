@@ -19,7 +19,7 @@ Prefix Sum Tensorflow implementation by Valerii Likhosherstov.
 import math
 import numpy as np
 import tensorflow as tf
-from .tf_fast_attention_util import util
+from .tf_fast_attention_util import DenseEinsum
 
 BIG_CONSTANT = 1e8
 
@@ -388,24 +388,24 @@ class Attention(tf.keras.layers.Layer):
 
     attention_initializer = _glorot_initializer(input_shape.as_list()[-1],
                                                 self.hidden_size)
-    self.query_dense_layer = util.DenseEinsum(
+    self.query_dense_layer = DenseEinsum(
         output_shape=(self.num_heads, size_per_head),
         kernel_initializer=attention_initializer,
         use_bias=False,
         name="query")
-    self.key_dense_layer = util.DenseEinsum(
+    self.key_dense_layer = DenseEinsum(
         output_shape=(self.num_heads, size_per_head),
         kernel_initializer=attention_initializer,
         use_bias=False,
         name="key")
-    self.value_dense_layer = util.DenseEinsum(
+    self.value_dense_layer = DenseEinsum(
         output_shape=(self.num_heads, size_per_head),
         kernel_initializer=attention_initializer,
         use_bias=False,
         name="value")
 
     output_initializer = _glorot_initializer(self.hidden_size, self.hidden_size)
-    self.output_dense_layer = util.DenseEinsum(
+    self.output_dense_layer = DenseEinsum(
         output_shape=self.hidden_size,
         num_summed_dimensions=2,
         kernel_initializer=output_initializer,
@@ -457,8 +457,9 @@ class Attention(tf.keras.layers.Layer):
       projection_matrix = None
     else:
       dim = query.shape[-1]
-      seed = tf.math.ceil(tf.math.abs(tf.math.reduce_sum(query) * BIG_CONSTANT))
-      seed = tf.dtypes.cast(seed, tf.int32)
+      #seed = tf.math.ceil(tf.math.abs(tf.math.reduce_sum(query)))
+      #seed = tf.dtypes.cast(seed, tf.int32) # This throws Expected int for argument 'seed2' not <tf.Tensor
+      seed = np.random.randint(99999999)
       projection_matrix = create_projection_matrix(
           self.nb_random_features, dim, seed=seed)
 
@@ -487,4 +488,7 @@ class Attention(tf.keras.layers.Layer):
                                        self.kernel_transformation, self.causal,
                                        projection_matrix)
     #attention_output = self.output_dense_layer(attention_output)
-    return attention_output
+
+    attention_output = tf.reshape(tensor=attention_output, shape=(list(query_input.shape)))
+
+    return attention_output,
