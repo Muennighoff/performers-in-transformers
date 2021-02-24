@@ -312,10 +312,16 @@ class TFBertAttention(tf.keras.layers.Layer):
 
         #self.self_attention = TFPerformerAttention(config.performer_attention_config, linear_layer_names=('query', 'key', 'value'), name="self")
 
-        self.self_attention = Attention(config.hidden_size, config.num_attention_heads, config.attention_probs_dropout_prob, config=config)
+        #self.self_attention = Attention(config.hidden_size, config.num_attention_heads, config.attention_probs_dropout_prob, config=config)
 
         #self.self_attention = Attention(config.hidden_size, config.num_attention_heads, config.attention_probs_dropout_prob, 
-        #                                   kernel_transformation=softmax_kernel_transformation, projection_matrix_type="something", nb_random_features=266)
+        #                                kernel_transformation=relu_kernel_transformation, projection_matrix_type="something", nb_random_features=5000)
+
+        #self.self_attention = Attention(config.hidden_size, config.num_attention_heads, config.attention_probs_dropout_prob, 
+        #                                   kernel_transformation=softmax_kernel_transformation, projection_matrix_type="something", nb_random_features=5000)
+
+        self.self_attention = Attention(config.hidden_size, config.num_attention_heads, config.attention_probs_dropout_prob, config=config,
+                                           kernel_transformation=softmax_kernel_transformation, projection_matrix_type="something", nb_random_features=5000)
 
         self.dense_output = TFBertSelfOutput(config, name="output")
 
