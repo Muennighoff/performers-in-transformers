@@ -20,6 +20,9 @@ import math
 import numpy as np
 import tensorflow as tf
 from .tf_fast_attention_util import DenseEinsum
+from ...modeling_tf_utils import (
+    shape_list,
+)
 
 BIG_CONSTANT = 1e8
 
@@ -489,6 +492,6 @@ class Attention(tf.keras.layers.Layer):
                                        projection_matrix)
     #attention_output = self.output_dense_layer(attention_output)
 
-    attention_output = tf.reshape(tensor=attention_output, shape=(list(query_input.shape)))
+    attention_output = tf.reshape(tensor=attention_output, shape=shape_list(query_input.shape))
 
     return attention_output,
