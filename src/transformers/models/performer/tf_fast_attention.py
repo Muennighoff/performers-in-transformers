@@ -22,6 +22,7 @@ import tensorflow as tf
 from .tf_fast_attention_util import DenseEinsum
 from ...modeling_tf_utils import (
     shape_list,
+    get_initializer,
 )
 
 BIG_CONSTANT = 1e8
@@ -350,7 +351,8 @@ class Attention(tf.keras.layers.Layer):
                numerical_stabilizer=0.001,
                causal=False,
                projection_matrix_type=None,
-               nb_random_features=0):
+               nb_random_features=0,
+               config=None):
     """Initialize Attention.
     Args:
       hidden_size: int, output dim of hidden layer.
@@ -380,6 +382,8 @@ class Attention(tf.keras.layers.Layer):
     self.projection_matrix_type = projection_matrix_type
     self.nb_random_features = nb_random_features
 
+    self.config = config
+
   def build(self, input_shape):
     """Builds the layer."""
     # Layers for linearly projecting the queries, keys, and values.
@@ -389,8 +393,13 @@ class Attention(tf.keras.layers.Layer):
       limit = math.sqrt(6.0 / (fan_in + fan_out))
       return tf.keras.initializers.RandomUniform(minval=-limit, maxval=limit)
 
-    attention_initializer = _glorot_initializer(input_shape.as_list()[-1],
-                                                self.hidden_size)
+    if self.config is not None:
+        print("Using Bert Initialization")
+        attention_initializer = get_initializer(self.config.initializer_range)
+    else:
+        attention_initializer = _glorot_initializer(input_shape.as_list()[-1],
+                                                    self.hidden_size)
+
     self.query_dense_layer = DenseEinsum(
         output_shape=(self.num_heads, size_per_head),
         kernel_initializer=attention_initializer,
@@ -492,6 +501,6 @@ class Attention(tf.keras.layers.Layer):
                                        projection_matrix)
     #attention_output = self.output_dense_layer(attention_output)
 
-    attention_output = tf.reshape(tensor=attention_output, shape=shape_list(query_input.shape))
+    attention_output = tf.reshape(tensor=attention_output, shape=shape_list(query_input))
 
     return attention_output,
