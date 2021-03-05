@@ -85,19 +85,19 @@ class TFPerformerAttention(tf.keras.layers.Layer):
         self.s = None
         self.z = None
 
-    def call(self, query, key, value, mask=None, output_attentions=False, position_bias=None):
+    def call(self, query, key, value, mask=None, output_attentions=False):
         """
         Parameters:
-            query: torch.tensor(bs, seq_length, dim)
-            key: torch.tensor(bs, seq_length, dim)
-            value: torch.tensor(bs, seq_length, dim)
+            query: torch.tensor(bs, n_heads, seq_length, dim)
+            key: torch.tensor(bs, n_heads, seq_length, dim)
+            value: torch.tensor(bs, n_heads, seq_length, dim)
             mask: torch.tensor(bs, seq_length)
 
         Returns:
             weights: tf.tensor(bs, num_heads, seq_length, seq_length) Attention weights context: tf.tensor(bs,
             seq_length, dim) Contextualized layer. Optional: only if `output_attentions=True`
         """
-        bs, q_length = shape_list(query)[:2]
+        bs, _, q_length = shape_list(query)[:3]
 
         assert not output_attentions, "Can't output attention maps when using Performer attention."
         if self.use_recurrent_decoding:
@@ -107,7 +107,7 @@ class TFPerformerAttention(tf.keras.layers.Layer):
         
         # Get the transformed values of Q and K
         q_prime, k_prime = self.get_projected_queries_and_keys(query, key)
-        return self.compute_attention_with_projected_queries_and_keys(q_prime, k_prime, value, mask, position_bias)
+        return self.compute_attention_with_projected_queries_and_keys(q_prime, k_prime, value, mask)
 
     def get_projected_queries_and_keys(self, q, k):
         """
@@ -156,7 +156,7 @@ class TFPerformerAttention(tf.keras.layers.Layer):
         else:
             return tuple(self.kernel_fn(x) + self.kernel_epsilon for x in (projected_q, projected_k))
 
-    def compute_attention_with_projected_queries_and_keys(self, q_prime, k_prime, v, mask=None, position_bias=None):
+    def compute_attention_with_projected_queries_and_keys(self, q_prime, k_prime, v, mask=None):
         """
         Computes the attention output given Q' and K' from the above get_projected_queries_and_keys method.
         Parameters:
@@ -166,7 +166,7 @@ class TFPerformerAttention(tf.keras.layers.Layer):
             mask: tf.tensor(bs, 1, q_length, 1)
 
         Returns:
-            V': tf.tensor(bs, seq_length, dim)
+            V': tf.tensor(bs, n_heads, seq_length, dim_per_head)
         """
         # Apply the padding mask to K'. Also applying it to Q' would be redundant.
         if mask is not None:
@@ -175,12 +175,8 @@ class TFPerformerAttention(tf.keras.layers.Layer):
         k_prime_t = tf.linalg.matrix_transpose(k_prime)
         output = self._numerator_for_projected_queries_and_keys(q_prime, k_prime_t, v)
 
-        if position_bias is not None:
-            # position_bias: (bs, n_heads, q_length, q_length)
-            add_pos = position_bias @ v
-            output += add_pos
-
         if self.normalize_output:
+            #  (bs, n_heads, seq_len, dim_per_head) / (bs, n_heads, seq_len, 1)
             output /= self._denominator_for_projected_queries_and_keys(q_prime, k_prime_t)
         
         return output
@@ -195,10 +191,10 @@ class TFPerformerAttention(tf.keras.layers.Layer):
             return _headwise_causal_numerator(q_prime, k_prime_t, v)
 
         # Causal, at inference time
-        s_delta = k_prime_t @ v
-        self.s = s_delta if self.s is None else self.s + s_delta
+        s_delta = k_prime_t @ v # (bs, n_heads, rndm_feats, seq_len) @ (bs, n_heads, seq_len, dim_per_head)
+        self.s = s_delta if self.s is None else self.s + s_delta # (bs, n_heads, rndm_feats, dim_per_head)
 
-        return q_prime @ self.s
+        return q_prime @ self.s # (bs, n_heads, seq_len, rndm_feats)  (bs, n_heads, rndm_feats, dim_per_head)
 
     def _denominator_for_projected_queries_and_keys(self, q_prime, k_prime_t):
         # Noncausal
@@ -208,13 +204,14 @@ class TFPerformerAttention(tf.keras.layers.Layer):
         # Causal, during training
         elif not self.use_recurrent_decoding:
             prefix_sums = tf.cumsum(k_prime_t, axis=-1)               # Cumsum over positions
-            denom = tf.einsum("bhlm,bhml->bhl", q_prime, prefix_sums)
-            denom = tf.expand_dims(denom, axis=-1)
+            denom = tf.einsum("bhlm,bhml->bhl", q_prime, prefix_sums) # (bs, n_heads, seq_len, rndm_feats) @ (bs, n_heads, rndm_feats, seq_len) >   (bs, n_heads, seq_len)
+            denom = tf.expand_dims(denom, axis=-1) #  (bs, n_heads, seq_len, 1)
 
         # Causal, at inference time
         else:
-            self.z = k_prime_t if self.z is None else self.z + k_prime_t    # Incrementally sum over positions
-            denom = q_prime @ self.z
+            self.z = k_prime_t if self.z is None else self.z + k_prime_t    # Incrementally sum over positions # This does not work since self.z is k_prime from last round with one shorter seq len
+            denom = q_prime @ self.z # (bs, n_heads, seq_len, rndm_feats) @ (bs, n_heads, rndm_feats, seq_len) 
+            # Don't we also neeed?: denom = tf.math.reduce_sum(denom, axis=-1, keepdims=True)
 
         # Avoid dividing by very small numbers
         extreme_vals = tf.cast(tf.math.abs(denom) <= self.normalization_stabilizer, denom.dtype)

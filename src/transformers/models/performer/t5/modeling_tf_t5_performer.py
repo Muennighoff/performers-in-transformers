@@ -169,9 +169,13 @@ class TFT5Attention(tf.keras.layers.Layer):
         self.v = tf.keras.layers.Dense(self.inner_dim, use_bias=False, name="v")
         self.o = tf.keras.layers.Dense(self.d_model, use_bias=False, name="o")
         self.dropout = tf.keras.layers.Dropout(config.dropout_rate)
-
-        self.performer_attention = TFPerformerAttention(config.performer_attention_config)
-
+        
+        if self.is_decoder:
+            config.performer_attention_config["causal"] = True
+            self.performer_attention = TFPerformerAttention(config.performer_attention_config)
+        else:
+            self.performer_attention = TFPerformerAttention(config.performer_attention_config)
+        
         if self.has_relative_attention_bias:
             self.relative_attention_bias = tf.keras.layers.Embedding(
                 self.relative_attention_num_buckets,
@@ -324,13 +328,13 @@ class TFT5Attention(tf.keras.layers.Layer):
             present_key_value_state = None
 
         # Make sure mask has shapes : bs, 1, seq_len, 1 instead of bs, 1, 1, seq_len for performer
-        mask = tf.transpose(mask, perm=(0, 1, 3, 2))
+        mask = tf.transpose(mask, perm=(0, 1, 3, 2)) # (3, 1, 5, 5) for decoder (bs, 1, seq, seq)?
 
         #scores = tf.einsum(
         #    "bnqd,bnkd->bnqk", query_states, key_states
         #)  # (batch_size, n_heads, query_length, key_length)
 
-        if position_bias is None:
+        if False: # No position bias support yet for T5
             if not self.has_relative_attention_bias:
                 position_bias = tf.zeros((1, self.n_heads, real_seq_length, key_length), dtype=tf.float32)
             else:
@@ -344,12 +348,12 @@ class TFT5Attention(tf.keras.layers.Layer):
             if mask is not None:
                 # Multiplying by the mask here as we will compute: Q' @ (K' * M) @ V + (B * M) @ V, where M is the mask & B is the pos bias
                 position_bias = position_bias * mask  # (batch_size, n_heads, query_length, key_length)
-    
+
         #scores += position_bias
         #weights = tf.nn.softmax(scores, axis=-1)  # (batch_size, n_heads, query_length, key_length)
         #weights = self.dropout(weights, training=training)  # (batch_size, n_heads, query_length, key_length)
-
-        attn_output = self.performer_attention(query_states, key_states, value_states, mask=mask, position_bias=position_bias)
+        
+        attn_output = self.performer_attention(query_states, key_states, value_states, mask=mask, position_bias=None)
 
         # Mask heads if we want to
         if layer_head_mask is not None:
@@ -671,7 +675,7 @@ class TFT5PerformerMainLayer(tf.keras.layers.Layer):
             # Provided a padding mask of dimensions [batch_size, mask_seq_length]
             # - if the model is a decoder, apply a causal mask in addition to the padding mask
             # - if the model is an encoder, make the mask broadcastable to [batch_size, num_heads, mask_seq_length, mask_seq_length]
-            if self.is_decoder:
+            if False:#self.is_decoder: # Use the same mask principle for decoder & encoder for performer - cumsum takes care of the rest
                 seq_ids = tf.range(mask_seq_length)
                 causal_mask = tf.less_equal(
                     tf.tile(seq_ids[None, None, :], (batch_size, mask_seq_length, 1)),

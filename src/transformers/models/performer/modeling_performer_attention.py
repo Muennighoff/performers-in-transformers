@@ -73,10 +73,6 @@ class PerformerAttention(nn.Module):
             self.kernel_type = resolve_enum(PerformerKernel, self.kernel_type)
             self.kernel_fn = KERNEL_CALLABLES[self.kernel_type]
 
-        #if self.use_linear_layers:
-        #    for name in self.linear_layer_names:
-        #        setattr(self, name, nn.Linear(self.d_model, self.d_model))
-
         self.pruned_heads = set()
 
         if self.causal:
@@ -106,7 +102,7 @@ class PerformerAttention(nn.Module):
         else:
             assert not self.use_recurrent_decoding
 
-    def forward(self, query, key, value, mask=None, output_attentions=False, position_bias=None):
+    def forward(self, query, key, value, mask=None, output_attentions=False):
         """
         Parameters:
             query: torch.tensor(bs, seq_length, dim)
@@ -128,7 +124,7 @@ class PerformerAttention(nn.Module):
 
         # Get the transformed values of Q and K
         q_prime, k_prime = self.get_projected_queries_and_keys(query, key)
-        return self.compute_attention_with_projected_queries_and_keys(q_prime, k_prime, value, mask, position_bias)
+        return self.compute_attention_with_projected_queries_and_keys(q_prime, k_prime, value, mask)
 
     def get_projected_queries_and_keys(self, q, k):
         """
@@ -180,14 +176,14 @@ class PerformerAttention(nn.Module):
         else:
             return (self.kernel_fn(x) + self.kernel_epsilon for x in (projected_q, projected_k))
 
-    def compute_attention_with_projected_queries_and_keys(self, q_prime, k_prime, v, mask=None, position_bias=None):
+    def compute_attention_with_projected_queries_and_keys(self, q_prime, k_prime, v, mask=None):
         """
         Computes the attention output given Q' and K' from the above get_projected_queries_and_keys method.
         Parameters:
             q_prime: torch.tensor(bs, seq_length, num_features)
             k_prime: torch.tensor(bs, seq_length, num_features)
             v: torch.tensor(bs, seq_length, dim)
-            mask: torch.tensor(bs, seq_length)
+            mask: torch.tensor(bs, 1, 1, seq_length)
 
         Returns:
             V': torch.tensor(bs, seq_length, dim)
@@ -198,11 +194,6 @@ class PerformerAttention(nn.Module):
 
         k_prime_t = k_prime.transpose(-2, -1)
         output = self._numerator_for_projected_queries_and_keys(q_prime, k_prime_t, v)
-
-        if position_bias is not None:
-            # position_bias: (bs, n_heads, q_length, q_length)
-            add_pos = position_bias @ v
-            output += add_pos
 
         if self.normalize_output:
             output /= self._denominator_for_projected_queries_and_keys(q_prime, k_prime_t)

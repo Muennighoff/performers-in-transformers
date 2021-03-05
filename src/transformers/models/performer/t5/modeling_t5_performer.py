@@ -322,7 +322,11 @@ class T5Attention(nn.Module):
         self.v = nn.Linear(self.d_model, self.inner_dim, bias=False)
         self.o = nn.Linear(self.inner_dim, self.d_model, bias=False)
 
-        self.performer_attention = PerformerAttention(config.performer_attention_config)
+        if self.is_decoder:
+            config.performer_attention_config["causal"] = True
+            self.performer_attention = PerformerAttention(config.performer_attention_config)
+        else:
+            self.performer_attention = PerformerAttention(config.performer_attention_config)
 
         if self.has_relative_attention_bias:
             self.relative_attention_bias = nn.Embedding(self.relative_attention_num_buckets, self.n_heads)
@@ -483,8 +487,9 @@ class T5Attention(nn.Module):
         #scores = torch.matmul(
         #    query_states, key_states.transpose(3, 2)
         #)  # equivalent of torch.einsum("bnqd,bnkd->bnqk", query_states, key_states), compatible with onnx op>9
-
-        if position_bias is None:
+        
+        # Temporariy removing position bias
+        if False:
             if not self.has_relative_attention_bias:
                 position_bias = torch.zeros(
                     (1, self.n_heads, real_seq_length, key_length), device=query_states.device, dtype=query_states.dtype
@@ -498,10 +503,9 @@ class T5Attention(nn.Module):
                 position_bias = position_bias[:, :, -seq_length:, :]
 
             if mask is not None:
-                # Multiplying by the mask here as we will compute: Q' @ (K' * M) @ V + (B * M) @ V, where M is the mask & B is the pos bias
                 position_bias = position_bias * mask  # (batch_size, n_heads, seq_length, key_length)
 
-        attn_output = self.performer_attention(query_states, key_states, value_states, mask, output_attentions, position_bias=position_bias)
+        attn_output = self.performer_attention(query_states, key_states, value_states, mask, output_attentions)
 
         #scores += position_bias
         #attn_weights = F.softmax(scores.float(), dim=-1).type_as(
@@ -516,6 +520,7 @@ class T5Attention(nn.Module):
             attn_output = attn_output * layer_head_mask
 
         #attn_output = unshape(torch.matmul(attn_weights, value_states))  # (batch_size, seq_length, dim)
+        attn_output = unshape(attn_output)
         attn_output = self.o(attn_output)
 
         present_key_value_state = (key_states, value_states) if (self.is_decoder and use_cache) else None
@@ -904,11 +909,13 @@ class T5Stack(T5PerformerPreTrainedModel):
         if past_key_values is None:
             past_key_values = [None] * len(self.block)
 
-        # ourselves in which case we just need to make it broadcastable to all heads.
-        extended_attention_mask = self.get_extended_attention_mask(attention_mask, input_shape, inputs_embeds.device)
+        # ourselves in which case we just need to make it broadcastable to all heads. # Not do this for performer due to the -inf
+        #extended_attention_mask = self.get_extended_attention_mask(attention_mask, input_shape, inputs_embeds.device)
+        extended_attention_mask = attention_mask[:, None, :, None] # Performer Attn Mask
 
         if self.is_decoder and encoder_attention_mask is not None:
-            encoder_extended_attention_mask = self.invert_attention_mask(encoder_attention_mask)
+            encoder_extended_attention_mask = encoder_attention_mask[:, None, :, None]
+            #encoder_extended_attention_mask = self.invert_attention_mask(encoder_attention_mask) # Do we need this for Performer?
         else:
             encoder_extended_attention_mask = None
 
