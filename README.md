@@ -14,6 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
+<h1> Performers within Transformers </h1>
+  
+This repo is a fork adding [performers](https://arxiv.org/pdf/2009.14794.pdf) to transformers, based on the discussions [here](https://github.com/huggingface/transformers/pull/9325).
+
+See [here](https://colab.research.google.com/drive/1A9reiUZbA7DELuJ8keTo73sIQ4dJJVoT?usp=sharing) for a notebook on how to make use of them. <br>
+Below follows the original README.
+
+
+
 <p align="center">
     <br>
     <img src="https://raw.githubusercontent.com/huggingface/transformers/master/docs/source/imgs/transformers_logo_name.png" width="400"/>
